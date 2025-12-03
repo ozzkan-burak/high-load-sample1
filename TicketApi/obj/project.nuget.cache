@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "dgSpecHash": "X+CYb6z65hGol1sa5h3tuRBsXUN2IHqdvKvBDo5O62uGu5LbSwm24ELxgzbaE9nMLZrRlEk4QiCmRhCi40se/Q==",
+  "success": true,
+  "projectFilePath": "/home/burak/Masaüstü/Architecture/TarkanBiletSistemi/TicketApi/TicketApi.csproj",
+  "expectedPackageFiles": [
+    "/home/burak/.nuget/packages/microsoft.aspnetcore.openapi/8.0.21/microsoft.aspnetcore.openapi.8.0.21.nupkg.sha512",
+    "/home/burak/.nuget/packages/microsoft.extensions.apidescription.server/6.0.5/microsoft.extensions.apidescription.server.6.0.5.nupkg.sha512",
+    "/home/burak/.nuget/packages/microsoft.openapi/1.6.14/microsoft.openapi.1.6.14.nupkg.sha512",
+    "/home/burak/.nuget/packages/swashbuckle.aspnetcore/6.6.2/swashbuckle.aspnetcore.6.6.2.nupkg.sha512",
+    "/home/burak/.nuget/packages/swashbuckle.aspnetcore.swagger/6.6.2/swashbuckle.aspnetcore.swagger.6.6.2.nupkg.sha512",
+    "/home/burak/.nuget/packages/swashbuckle.aspnetcore.swaggergen/6.6.2/swashbuckle.aspnetcore.swaggergen.6.6.2.nupkg.sha512",
+    "/home/burak/.nuget/packages/swashbuckle.aspnetcore.swaggerui/6.6.2/swashbuckle.aspnetcore.swaggerui.6.6.2.nupkg.sha512"
+  ],
+  "logs": []
+}
