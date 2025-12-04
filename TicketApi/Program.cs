@@ -20,14 +20,36 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
-// Veritabanını otomatik oluştur (Migration uygula)
+// Veritabanını otomatik oluştur (Migration yerine EnsureCreated kullanıyoruz)
 // NOT: Production'da bu tehlikelidir ama geliştirme ortamı için hayat kurtarır.
 using (var scope = app.Services.CreateScope())
 {
-    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    // Veritabanı yoksa oluştur, tabloları güncelle
-    dbContext.Database.Migrate();
+    var services = scope.ServiceProvider;
+    var logger = services.GetRequiredService<ILogger<Program>>();
+
+    try
+    {
+        var dbContext = services.GetRequiredService<AppDbContext>();
+
+        // Veritabanını oluştur (yoksa) - Migration history tutmaz
+        dbContext.Database.EnsureCreated();
+
+        logger.LogInformation("✅ Veritabanı başarıyla oluşturuldu/kontrol edildi.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "❌ Veritabanı oluşturulurken hata: {Message}", ex.Message);
+    }
 }
+
+// Docker-Compose'dan gelen "ConnectionStrings__Redis" değerini okur.
+var redisConnection = builder.Configuration.GetConnectionString("Redis");
+
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = redisConnection;
+    options.InstanceName = "TarkanBilet_"; // Key'lerin başına eklenir (Örn: TarkanBilet_TicketList)
+});
 
 if (app.Environment.IsDevelopment())
 {
