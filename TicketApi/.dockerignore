@@ -1,0 +1,28 @@
+# Build artifacts
+**/bin/
+**/obj/
+**/out/
+
+# IDE
+**/.vs/
+**/.vscode/
+**/.idea/
+
+# Data folders
+postgres-data
+postgres-data/
+**/postgres-data/
+redis-data
+redis-data/
+**/redis-data/
+
+# Git
+**/.git/
+**/.gitignore
+
+# Docker
+docker-compose*
+Dockerfile*
+
+# Logs
+**/*.log

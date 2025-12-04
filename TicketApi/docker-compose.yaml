@@ -10,11 +10,16 @@ services:
       POSTGRES_PASSWORD: Password123!
       POSTGRES_DB: TicketDb
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
-      - ./postgres-data:/var/lib/postgresql/data # <--- DİKKAT: Veriler buraya (senin diskine) yazılacak.
+      - postgres-data:/var/lib/postgresql/data
     networks:
       - bilet-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U admin -d TicketDb']
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # 2. CACHE (Redis)
   redis_cache:
@@ -24,19 +29,29 @@ services:
       - '6379:6379'
     networks:
       - bilet-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   # 3. MESSAGE BROKER (RabbitMQ)
   rabbitmq_broker:
-    image: rabbitmq:3-management # <--- "Management" arayüzü olan versiyon
+    image: rabbitmq:3-management
     container_name: tarkan_rabbit
     ports:
-      - '5672:5672' # Uygulama portu
-      - '15672:15672' # Yönetim Paneli (UI) portu
+      - '5672:5672'
+      - '15672:15672'
     environment:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     networks:
       - bilet-network
+    healthcheck:
+      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+      interval: 10s
+      timeout: 10s
+      retries: 5
 
   # 4. SENİN UYGULAMAN (Ticket API)
   ticket_api:
@@ -45,20 +60,28 @@ services:
       dockerfile: Dockerfile
     container_name: tarkan_api
     ports:
-      - '5000:8080' # Dışarıdan 5000 ile gel, içeride 8080'e git
+      - '5000:8080'
     environment:
-      # MİMAR NOTU: Localhost yerine servis isimlerini kullanıyoruz!
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Postgres=Host=postgres_db;Port=5432;Database=TicketDb;Username=admin;Password=Password123!;
       - ConnectionStrings__Redis=redis_cache:6379
       - ConnectionStrings__RabbitMQ=host=rabbitmq_broker
     depends_on:
-      - postgres_db
-      - redis_cache
-      - rabbitmq_broker
+      postgres_db:
+        condition: service_healthy
+      redis_cache:
+        condition: service_healthy
+      rabbitmq_broker:
+        condition: service_healthy
     networks:
       - bilet-network
+    restart: on-failure
 
-# Özel bir ağ oluştur ki hepsi birbirini görsün
 networks:
   bilet-network:
     driver: bridge
+
+volumes:
+  postgres-data:
+    driver: local
