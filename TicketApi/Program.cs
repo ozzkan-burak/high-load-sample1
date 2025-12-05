@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using TicketApi.Data;
+using MassTransit;
+using TicketApi.Consumers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,6 +19,34 @@ builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = builder.Configuration.GetConnectionString("Redis");
     options.InstanceName = "TicketCache_";
+});
+
+// --- RABBITMQ (MassTransit) AYARLARI ---
+builder.Services.AddMassTransit(x =>
+{
+    // Tüketiciyi (Consumer) tanıtıyoruz
+    x.AddConsumer<TicketCreatedConsumer>();
+
+    x.UsingRabbitMq((context, cfg) =>
+    {
+        // Docker-Compose'dan gelen RabbitMQ adresini al
+        // ConnectionStrings__RabbitMQ=host=rabbitmq_broker
+        var rabbitConn = builder.Configuration.GetConnectionString("RabbitMQ");
+
+        // Eğer bağlantı stringi "host=..." formatındaysa parse etmemiz gerekebilir
+        // Basitlik olsun diye direkt host adını veriyoruz:
+        cfg.Host("rabbitmq_broker", "/", h =>
+        {
+            h.Username("guest");
+            h.Password("guest");
+        });
+
+        // Kuyruk ayarları
+        cfg.ReceiveEndpoint("ticket-queue", e =>
+        {
+            e.ConfigureConsumer<TicketCreatedConsumer>(context);
+        });
+    });
 });
 
 var app = builder.Build();
