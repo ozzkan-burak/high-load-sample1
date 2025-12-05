@@ -1,7 +1,8 @@
+using MassTransit; // RabbitMQ için
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Distributed;
-using System.Text.Json;
+using Microsoft.Extensions.Caching.Distributed; // Redis için
+using System.Text.Json; // JSON işlemleri için
 using TicketApi.Data;
 using TicketApi.Models;
 
@@ -11,88 +12,77 @@ namespace TicketApi.Controllers;
 [Route("api/[controller]")]
 public class TicketController : ControllerBase
 {
-  private readonly AppDbContext _dbContext;
+  private readonly AppDbContext _context;
   private readonly IDistributedCache _cache;
-  private readonly ILogger<TicketController> _logger;
+  private readonly IPublishEndpoint _publishEndpoint; // RabbitMQ mesajcısı
 
-  private const string TICKETS_CACHE_KEY = "all_tickets";
-
-  public TicketController(
-      AppDbContext dbContext,
-      IDistributedCache cache,
-      ILogger<TicketController> logger)
+  // Constructor: Bağımlılıkları (Dependency Injection) alıyoruz
+  public TicketController(AppDbContext context, IDistributedCache cache, IPublishEndpoint publishEndpoint)
   {
-    _dbContext = dbContext;
+    _context = context;
     _cache = cache;
-    _logger = logger;
+    _publishEndpoint = publishEndpoint;
   }
 
+  // GET: Tüm biletleri listele (Redis Cache-Aside Desenli)
   [HttpGet]
-  public async Task<IActionResult> GetTickets()
+  public async Task<IActionResult> GetAll()
   {
-    // 1. Önce Redis'ten kontrol et
-    var cachedTickets = await _cache.GetStringAsync(TICKETS_CACHE_KEY);
+    string cacheKey = "ticket_list";
+
+    // 1. ADIM: Cache'e bak (Redis)
+    var cachedTickets = await _cache.GetStringAsync(cacheKey);
 
     if (!string.IsNullOrEmpty(cachedTickets))
     {
-      _logger.LogInformation("✅ Cache'den veri döndürüldü");
-      var tickets = JsonSerializer.Deserialize<List<Ticket>>(cachedTickets);
-      return Ok(new { source = "cache", data = tickets });
+      // Cache'te varsa veritabanına gitmeden dön
+      var ticketsFromCache = JsonSerializer.Deserialize<List<Ticket>>(cachedTickets);
+      return Ok(ticketsFromCache);
     }
 
-    // 2. Cache'de yoksa veritabanından çek
-    _logger.LogInformation("⚠️ Cache'de veri yok, veritabanından çekiliyor...");
-    await Task.Delay(2000); // Veritabanı gecikmesi simülasyonu
+    // 2. ADIM: Cache'te yoksa Veritabanına git
+    // (Yük testi sırasında farkı görmek için yapay gecikme eklenebilir, şu an kapalı)
+    // await Task.Delay(2000); 
 
-    var ticketsFromDb = await _dbContext.Tickets.ToListAsync();
+    var ticketsFromDb = await _context.Tickets.ToListAsync();
 
-    // 3. Redis'e kaydet (5 dakika süreyle)
+    // 3. ADIM: Veriyi Cache'e yaz
+    var jsonOptions = new JsonSerializerOptions { WriteIndented = false };
+    string jsonString = JsonSerializer.Serialize(ticketsFromDb, jsonOptions);
+
     var cacheOptions = new DistributedCacheEntryOptions
     {
-      AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5)
+      AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(1) // 1 dakika ömür biç
     };
 
-    var serializedTickets = JsonSerializer.Serialize(ticketsFromDb);
-    await _cache.SetStringAsync(TICKETS_CACHE_KEY, serializedTickets, cacheOptions);
+    await _cache.SetStringAsync(cacheKey, jsonString, cacheOptions);
 
-    _logger.LogInformation("💾 Veri Redis'e kaydedildi");
-
-    return Ok(new { source = "database", data = ticketsFromDb });
+    return Ok(ticketsFromDb);
   }
 
+  // POST: Bilet Satın Al (RabbitMQ - Asenkron Desenli)
   [HttpPost]
   public async Task<IActionResult> BuyTicket(Ticket ticket)
   {
-    await _dbContext.Tickets.AddAsync(ticket);
-    await _dbContext.SaveChangesAsync();
-
-    // ⚠️ Yeni ticket eklendiğinde cache'i temizle
-    await _cache.RemoveAsync(TICKETS_CACHE_KEY);
-    _logger.LogInformation("🗑️ Cache temizlendi (yeni ticket eklendi)");
-
-    return CreatedAtAction(nameof(GetTickets), new { id = ticket.Id }, ticket);
-  }
-
-  // 🆕 Cache'i manuel temizlemek için endpoint
-  [HttpDelete("cache")]
-  public async Task<IActionResult> ClearCache()
-  {
-    await _cache.RemoveAsync(TICKETS_CACHE_KEY);
-    _logger.LogInformation("🗑️ Cache manuel olarak temizlendi");
-    return Ok(new { message = "Cache başarıyla temizlendi" });
-  }
-
-  // 🆕 Cache durumunu kontrol et
-  [HttpGet("cache/status")]
-  public async Task<IActionResult> GetCacheStatus()
-  {
-    var cachedData = await _cache.GetStringAsync(TICKETS_CACHE_KEY);
-    var isCached = !string.IsNullOrEmpty(cachedData);
-
-    return Ok(new
+    // 1. Veri paketini hazırla (Event Nesnesi)
+    // Veritabanı nesnesini (Entity) doğrudan kuyruğa atmak yerine,
+    // sadece gerekli verileri taşıyan hafif bir DTO (Data Transfer Object) oluşturuyoruz.
+    var ticketEvent = new TicketCreatedEvent
     {
-      isCached = isCached,
-      message = isCached ? "Cache'de veri var" : "Cache boş"
-    });
+      OwnerName = ticket.CustomerName,
+      EventName = ticket.EventName,
+      Price = ticket.Price,
+      CreatedAt = DateTime.UtcNow
+    };
+
+    // 2. Kuyruğa Mesaj Bırak (Fire and Forget)
+    // Veritabanına yazma işlemini burada YAPMIYORUZ.
+    // Cache silme işlemini burada YAPMIYORUZ.
+    // Sadece mesajı RabbitMQ'ya teslim ediyoruz.
+    await _publishEndpoint.Publish(ticketEvent);
+
+    // 3. Kullanıcıya "Sıraya Alındı" (202 Accepted) dön
+    // Artık veritabanını beklemediğimiz için bu cevap milisaniyeler içinde döner.
+    return Accepted(new { status = "Sıraya alındı. İşleminiz arka planda yapılıyor.", ticketInfo = ticketEvent });
   }
 }
